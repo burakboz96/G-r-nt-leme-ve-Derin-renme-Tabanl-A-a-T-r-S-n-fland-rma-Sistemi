@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Ağaç Türü Tahmini</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Leaflet Harita -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- TailwindCSS -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <!-- Lottie -->
+  <script src="https://cdn.jsdelivr.net/npm/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <style>
+    #drop-area {
+      border: 2px dashed #4B5563;
+      padding: 60px;
+      text-align: center;
+      transition: background 0.3s ease;
+    }
+    #drop-area.hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    #map {
+      height: 600px;
+      margin-top: 30px;
+      border-radius: 16px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
+    }
+    #chat-box {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white min-h-screen p-6">
+
+  <div class="max-w-3xl mx-auto text-center">
+    <h1 class="text-4xl font-extrabold mb-6">🌳 Ağaç Türü Tahmini Sistemi</h1>
+    <p class="mb-8 text-gray-300">Bir ağaç fotoğrafı yükleyin, sistem size hangi tür olduğunu, özelliklerini ve Türkiye'deki yayılım alanlarını harita üzerinde göstersin.</p>
+  </div>
+
+  <!-- Dosya yükleme alanı -->
+  <div id="drop-area" class="rounded-xl bg-gray-800 max-w-2xl mx-auto cursor-pointer shadow-lg hover:shadow-xl transition">
+    <p class="text-lg text-gray-300">Resminizi buraya sürükleyin ya da <span class="text-indigo-400 font-semibold underline">tıklayın</span></p>
+    <input type="file" id="fileElem" accept="image/*" class="hidden">
+  </div>
+
+
+
+  <!-- Sonuç -->
+  <p id="result" class="text-center text-2xl mt-8 font-semibold text-green-300"></p>
+
+  <!-- Harita -->
+  <div id="map" class="hidden mt-6 mx-auto max-w-5xl"></div>
+
+  <!-- Grafik Filtreleme -->
+<div class="max-w-2xl mx-auto mt-10">
+  <label class="block text-gray-300 mb-2">📊 Tür Filtrele:</label>
+  <select id="filterSelect" class="bg-gray-700 text-white p-2 rounded w-full">
+    <option value="Hepsi">Hepsi</option>
+    <option value="Meşe">Meşe</option>
+    <option value="Çam">Çam</option>
+    <option value="Kavak">Kavak</option>
+    <option value="Söğüt">Söğüt</option>
+  </select>
+</div>
+
+<!-- Yükleme animasyonu -->
+<div id="loader" class="flex justify-center items-center absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 hidden">
+  <lottie-player src="https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json" background="transparent" speed="1" style=" left:120px; width: 150px; height: 150px;" loop autoplay></lottie-player>
+  <p class="text-gray-400 mt-6 text-xl font-semibold">Tahmin yapılıyor...</p>
+</div>
+
+  <!-- Chatbot -->
+  <div class="max-w-2xl mx-auto mt-10 bg-gray-800 p-4 rounded-xl shadow-md">
+    <h2 class="text-lg font-bold text-white mb-2">💬 Chatbot</h2>
+    <div id="chat-box" class="text-sm text-gray-200 mb-3 bg-gray-900 p-2 rounded h-40 overflow-y-scroll"></div>
+    <div class="flex gap-2">
+      <input type="text" id="user-input" class="w-full bg-gray-700 text-white p-2 rounded" placeholder="Soru sor...">
+      <button id="send-btn" class="bg-indigo-500 px-4 py-2 rounded text-white">Gönder</button>
+    </div>
+  </div>
+
+ <script>
+  const fileElem = document.getElementById("fileElem");
+  const dropArea = document.getElementById("drop-area");
+  const resultElem = document.getElementById("result");
+  const loader = document.getElementById("loader");
+  const mapDiv = document.getElementById("map");
+  const filterSelect = document.getElementById("filterSelect");
+  const chatBox = document.getElementById("chat-box");
+  const userInput = document.getElementById("user-input");
+  const sendBtn = document.getElementById("send-btn");
+
+  const cityCoordinates = {
+    "Ankara": [39.93, 32.86],
+    "Eskişehir": [39.78, 30.52],
+    "Bursa": [40.18, 29.06],
+    "Kütahya": [39.42, 29.99],
+    "Afyon": [38.76, 30.54],
+    "Balıkesir": [39.65, 27.89],
+    "Antalya": [36.90, 30.70],
+    "Muğla": [37.22, 28.36],
+    "İzmir": [38.42, 27.14],
+    "Mersin": [36.80, 34.63],
+    "Aydın": [37.84, 27.84],
+    "Isparta": [37.76, 30.55],
+    "Diyarbakır": [37.91, 40.24],
+    "Şanlıurfa": [37.16, 38.79],
+    "Elazığ": [38.68, 39.22],
+    "Malatya": [38.35, 38.31],
+    "Çanakkale": [40.15, 26.41],
+    "Edirne": [41.68, 26.56],
+    "Tekirdağ": [40.98, 27.51]
+  };
+
+  const treeData = {
+    "Meşe": {
+      coords: [39.5, 35.0],
+      color: "saddlebrown",
+      info: "Meşe ağaçları Türkiye'nin iç ve batı kesimlerinde yaygındır. Sert yapısı mobilya ve inşaatta kullanılır.",
+      regions: ["Ankara", "Eskişehir", "Bursa", "Kütahya", "Afyon", "Balıkesir"]
+    },
+    "Çam": {
+      coords: [39.0, 30.0],
+      color: "green",
+      info: "Çam ağaçları Akdeniz ve Ege bölgelerinde yoğun olarak bulunur. Reçineli yapısıyla dikkat çeker.",
+      regions: ["Antalya", "Muğla", "İzmir", "Mersin", "Aydın", "Isparta"]
+    },
+    "Kavak": {
+      coords: [38.0, 39.0],
+      color: "skyblue",
+      info: "Kavak, suyu seven bir ağaçtır ve genellikle sulak alanlarda yetişir. Kâğıt ve kontrplak üretiminde kullanılır.",
+      regions: ["Diyarbakır", "Şanlıurfa", "Elazığ", "Malatya"]
+    },
+    "Söğüt": {
+      coords: [40.0, 27.0],
+      color: "plum",
+      info: "Söğüt ağaçları genellikle dere ve nehir kenarlarında büyür. Süs ve gölgelik olarak kullanılır.",
+      regions: ["Çanakkale", "Edirne", "Tekirdağ", "Balıkesir"]
+    }
+  };
+
+  let currentPrediction = "";
+
+  dropArea.addEventListener("click", () => fileElem.click());
+  dropArea.addEventListener("dragover", e => { e.preventDefault(); dropArea.classList.add("hover"); });
+  dropArea.addEventListener("dragleave", () => dropArea.classList.remove("hover"));
+  dropArea.addEventListener("drop", e => {
+    e.preventDefault();
+    dropArea.classList.remove("hover");
+    handleFiles(e.dataTransfer.files[0]);
+  });
+  fileElem.addEventListener("change", () => handleFiles(fileElem.files[0]));
+
+  function speakText(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "tr-TR";
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function handleFiles(file) {
+    if (!file) return;
+    loader.classList.remove("hidden");
+    resultElem.textContent = "";
+    mapDiv.classList.add("hidden");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    fetch("http://127.0.0.1:5000/predict", {
+      method: "POST",
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      setTimeout(() => {
+        loader.classList.add("hidden");
+
+        const prediction = data.class;
+        const confidence = data.confidence;
+        currentPrediction = prediction;
+
+        const tree = treeData[prediction] || {
+          coords: [39.0, 35.0],
+          color: "gray",
+          info: "SONUÇLAR",
+          name: "Bilinmiyor",
+          regions: []
+        };
+
+        tree.name = prediction;
+        resultElem.innerHTML = `
+          <strong class="text-3xl">${tree.name}</strong> - Güven: 
+          <span class="text-yellow-300">%${(confidence * 100).toFixed(1)}</span><br>
+          <em class="text-lg text-gray-300">${tree.info}</em><br>
+          <span class="text-sm text-gray-400 mt-2 block">Yayılım Bölgeleri: ${tree.regions.join(", ")}</span>
+        `;
+
+        speakText(`${tree.name} türü tahmin edildi. Güven oranı yüzde ${(confidence * 100).toFixed(1)}.`);
+
+        renderMap(tree);
+
+        chatBox.innerHTML += `<div>🤖 Bu bir ${tree.name} ağacıdır. ${tree.info}</div><hr class="my-2 border-gray-700">`;
+
+      }, 3000);
+    })
+    .catch(err => {
+      loader.classList.add("hidden");
+      resultElem.textContent = "❌ Tahmin yapılamadı.";
+      console.error(err);
+    });
+  }
+
+  function renderMap(tree) {
+    mapDiv.classList.remove("hidden");
+    mapDiv.innerHTML = "";
+    const map = L.map('map').setView(tree.coords, 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    L.circle(tree.coords, {
+      color: tree.color,
+      fillColor: tree.color,
+      fillOpacity: 0.3,
+      radius: 180000
+    }).addTo(map).bindPopup(`<strong>${tree.name}</strong><br>${tree.info}`);
+
+    tree.regions.forEach(region => {
+      const coord = cityCoordinates[region];
+      if (coord) {
+        L.circleMarker(coord, {
+          radius: 6,
+          color: tree.color,
+          fillColor: tree.color,
+          fillOpacity: 0.9
+        }).addTo(map).bindTooltip(`${tree.name} (${region})`);
+      }
+    });
+
+    fetch("Turkey_provinces.geojson")
+      .then(res => res.json())
+      .then(geoData => {
+        L.geoJSON(geoData, {
+          style: {
+            color: "#888",
+            weight: 1,
+            fillOpacity: 0.1
+          },
+          onEachFeature: function (feature, layer) {
+            if (feature.properties && feature.properties.name) {
+              layer.bindTooltip(feature.properties.name, { permanent: false });
+            }
+          }
+        }).addTo(map);
+      })
+      .catch(err => console.error("GeoJSON yüklenemedi:", err));
+  }
+
+  sendBtn.addEventListener("click", () => {
+    const msg = userInput.value.trim();
+    if (!msg) return;
+    chatBox.innerHTML += `<div class="text-indigo-300">👤 ${msg}</div>`;
+
+    let response = "Bu konuda size yardımcı olamıyorum.";
+    if (currentPrediction && treeData[currentPrediction]) {
+      if (msg.toLowerCase().includes("nerede")) {
+        response = `${currentPrediction} genellikle ${treeData[currentPrediction].regions.join(", ")} illerinde bulunur.`;
+      } else if (msg.toLowerCase().includes("özellik")) {
+        response = treeData[currentPrediction].info;
+      } else {
+        response = `${currentPrediction} hakkında daha fazla bilgi için haritayı inceleyebilirsiniz.`;
+      }
+    }
+
+    chatBox.innerHTML += `<div class="text-green-300">🤖 ${response}</div><hr class="my-2 border-gray-700">`;
+    userInput.value = "";
+    chatBox.scrollTop = chatBox.scrollHeight;
+  });
+
+  filterSelect.addEventListener("change", () => {
+    const selected = filterSelect.value;
+    if (selected !== currentPrediction && selected !== "Hepsi") {
+      resultElem.textContent = `🔍 Lütfen önce '${selected}' türünü içeren bir resim yükleyin.`;
+      mapDiv.classList.add("hidden");
+    } else if (selected === "Hepsi") {
+      mapDiv.classList.remove("hidden");
+    }
+  });
+</script>
+
+</body>
+</html>
